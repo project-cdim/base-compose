@@ -1,0 +1,3 @@
+proxy/*
+gateway/public_key.pem
+!.gitkeep
