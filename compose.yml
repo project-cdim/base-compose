@@ -20,11 +20,16 @@ services:
         max-size: 50m
 
   iam:
-    image: quay.io/keycloak/keycloak:26.1
+    image: quay.io/keycloak/keycloak:26.4
     container_name: iam
     depends_on:
       - iam-db
-    command: ["start-dev", "--import-realm"]
+    command: [
+      "start",
+      "--http-enabled=true",
+      "--hostname=${IAM_HOSTNAME:-http://localhost:8287}",
+      "--import-realm",
+    ]
     networks:
       - cdim-net
     ports:
@@ -43,6 +48,7 @@ services:
         max-size: 50m
     volumes:
       - "./iam/import:/opt/keycloak/data/import:ro"
+      - "./iam/CDIMTheme.jar:/opt/keycloak/providers/CDIMTheme.jar:ro"
 
   iam-db:
     image: "postgres:16-alpine"
@@ -62,7 +68,7 @@ services:
         max-size: 50m
 
   gateway:
-    image: kong:3.8
+    image: kong:3.9
     container_name: gateway
     ports:
       - 8014:8000
@@ -107,15 +113,31 @@ services:
         max-size: 50m
 
   gateway-migrate:
-    image: kong:3.8
+    image: kong:3.9
     container_name: gateway-migrate
     depends_on:
-      - "gateway-db"
+      gateway-db:
+        condition: service_healthy
     environment:
-      <<: *kong-env
+      KONG_DATABASE: ${KONG_DATABASE:-postgres}
+      KONG_PG_DATABASE: ${KONG_PG_DATABASE:-kong}
+      KONG_PG_HOST: gateway-db
+      KONG_PG_USER: ${KONG_PG_USER:-kong}
     secrets:
       - gateway_db_password
-    command: "kong migrations bootstrap"
+    command:
+      - sh
+      - -c
+      - |
+        set -e
+        export KONG_PG_PASSWORD=$(cat /run/secrets/gateway_db_password)
+        STATUS=$(kong migrations list 2>&1 || true)
+        if echo "$$STATUS" | grep -q "Database needs bootstrapping"; then
+          kong migrations bootstrap
+        elif echo "$$STATUS" | grep -q "New migrations available"; then
+          kong migrations up
+          kong migrations finish
+        fi
     restart: "on-failure:3"
     networks:
       - cdim-net
@@ -139,6 +161,12 @@ services:
     logging:
       options:
         max-size: 50m
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${KONG_PG_USER:-kong} -d ${KONG_PG_DATABASE:-kong}"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
 
   message-broker:
     container_name: message-broker
