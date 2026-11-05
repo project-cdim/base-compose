@@ -7,3 +7,4 @@ The changes from v0.1.0 are as follows:
 ### Features
 
 - Add support for event management platform
+
