@@ -1,2 +1,4 @@
-gateway/public_key.pem
 !.gitkeep
+compose.yml
+.env
+iam/import/CDIM-realm.json
